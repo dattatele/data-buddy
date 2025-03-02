@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 from retrying import retry  # External library for retry mechanism
 from data_buddy.connectors.base_connector import BaseConnector
 from data_buddy.connectors.sources import FileSource, LocalFileSource, HTTPFileSource, S3FileSource
+from data_buddy.connectors.utils import inherit_docstring_and_signature, StreamingBatchIterator
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -44,21 +45,6 @@ READER_FUNCTIONS = {
     }
     # Add more file types and readers as needed
 }
-
-def inherit_docstring_and_signature(wrapped_func: Callable) -> Callable:
-    """
-    Decorator to inherit the docstring and signature of the wrapped function.
-    """
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(wrapped_func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        # Set the metadata on the final wrapper function
-        wrapper.__doc__ = wrapped_func.__doc__
-        wrapper.__signature__ = inspect.signature(wrapped_func)
-        return wrapper
-    return decorator
-
 
 class FileConnector(BaseConnector):
     """
@@ -198,6 +184,72 @@ class FileConnector(BaseConnector):
     def _fetch_parquet_pyarrow(self, file_obj: Union[str, io.BytesIO], **kwargs: Any):
         return pq.read_table(file_obj, **kwargs)
     
+    # ------------------ Helper Functions for JSON Streaming ------------------
+
+    def _is_dict_of_lists(self, data: dict) -> bool:
+        """
+        Return True if data is a dict whose values are all lists of equal length.
+        """
+        if not data:
+            return False
+        values = list(data.values())
+        if not all(isinstance(v, list) for v in values):
+            return False
+        lengths = [len(v) for v in values]
+        return len(set(lengths)) == 1
+
+    def _convert_dict_of_lists_to_rows(self, data: dict) -> Iterator[dict]:
+        """
+        Convert a column-oriented dict (dict-of-lists) into an iterator of row dicts.
+        """
+        num_rows = len(next(iter(data.values())))
+        keys = list(data.keys())
+        for i in range(num_rows):
+            yield {k: data[k][i] for k in keys}
+
+    def _stream_json_array(self, f: io.TextIOBase) -> Iterator[Any]:
+        """
+        Stream JSON objects from a file containing a JSON array without loading the entire array.
+        Assumes the file pointer is at the beginning of the array.
+        """
+        c = f.read(1)
+        if c != '[':
+            raise ValueError("Expected '[' at the start of a JSON array")
+        decoder = json.JSONDecoder()
+        buffer = ""
+        while True:
+            if not buffer:
+                chunk = f.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+            buffer = buffer.lstrip()
+            if buffer.startswith(']'):
+                break
+            try:
+                obj, idx = decoder.raw_decode(buffer)
+                yield obj
+                buffer = buffer[idx:]
+                buffer = buffer.lstrip()
+                if buffer.startswith(','):
+                    buffer = buffer[1:]
+            except json.JSONDecodeError:
+                chunk = f.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+    
+    def _batch_iterable(self, iterator: Iterator[Any], batch_size: int) -> Iterator[List[Any]]:
+        """
+        Yield successive batches from an iterator using islice.
+        """
+        from itertools import islice
+        while True:
+            batch = list(islice(iterator, batch_size))
+            if not batch:
+                break
+            yield batch
+
     # ------------------ Public Methods ------------------ #
     
     def fetch(self, **kwargs: Any) -> Union[pd.DataFrame, list, dict]:
@@ -219,7 +271,7 @@ class FileConnector(BaseConnector):
                     return self._fetch_json(file_obj, **kwargs)
                 case "parquet":
                     return self._fetch_parquet(file_obj, **kwargs)
-                case "excel":
+                case "xlsx":
                     return self._fetch_excel(file_obj, **kwargs)
                 case _:
                     raise ValueError(f"Unsupported file type: {self.file_type}")
@@ -296,45 +348,37 @@ class FileConnector(BaseConnector):
                         batches.append(current_batch)
                     return batches
                 
-                else:  # json
-                    if isinstance(file_obj, io.BytesIO):
-                        data = json.load(file_obj)
-                    else:
-                        with open(file_obj, 'r') as f:
-                            data = json.load(f)
+                elif self.file_type == "json":
+                    # BEGIN MODIFIED: Use with statement and stream JSON objects in batches without loading entire file
+                    def json_batch_generator() -> Iterator[List[Any]]:
+                        with open(self.file_path, 'r', encoding='utf-8') as f:
+                            pos = f.tell()
+                            first_char = f.read(1)
+                            while first_char and first_char.isspace():
+                                first_char = f.read(1)
+                            f.seek(pos)
+                            
+                            if first_char == '[':
+                                json_iter = self._stream_json_array(f)
+                            elif first_char == '{':
+                                data = json.load(f)
+                                if isinstance(data, dict) and self._is_dict_of_lists(data):
+                                    json_iter = self._convert_dict_of_lists_to_rows(data)
+                                else:
+                                    json_iter = iter([data])
+                            else:
+                                json_iter = (json.loads(line) for line in f if line.strip())
+                            
+                            yield from self._batch_iterable(json_iter, batch_size)
                     
-                    if isinstance(data, list):
-                        return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
-                    else:
-                        return [data]  # Single JSON object can't be batched
-            
+                    batch_iter = StreamingBatchIterator(json_batch_generator())
+                    return batch_iter            
             else:
                 raise ValueError(f"Unsupported reader: {self.reader}")
 
         except Exception as e:
             logger.error(f"Failed to fetch data in batches from {self.file_path}: {e}")
             raise
-
-    # def fetch_parallel(self, file_paths: List[str], **kwargs: Any) -> List[Union[pd.DataFrame, list, dict]]:
-    #     """
-    #     Fetch data from multiple files in parallel.
-        
-    #     For parquet files, this uses optimized parallel reading settings.
-    #     """
-    #     try:
-    #         with ThreadPoolExecutor() as executor:
-    #             if self.file_type == "parquet":
-    #                 # Set optimized defaults for parquet
-    #                 kwargs.setdefault('use_threads', True)
-    #                 kwargs.setdefault('memory_map', True)
-                
-    #             futures = [executor.submit(self.fetch, file_path=path, **kwargs) for path in file_paths]
-    #             results = [future.result() for future in as_completed(futures)]
-    #             return results
-                
-    #     except Exception as e:
-    #         logger.error(f"Failed to fetch data in parallel from {file_paths}: {e}")
-    #         raise
 
     def fetch_parallel(self, file_paths: List[str], **kwargs: Any) -> List[Union[pd.DataFrame, list, dict]]:
         """
