@@ -1,7 +1,8 @@
 
 [![codecov](https://codecov.io/gh/dattatele/data-warp/branch/master/graph/badge.svg)](https://codecov.io/gh/dattatele/data-warp)
 
-# Data-Warp
+
+# Data-Warp  [![PyPI](https://img.shields.io/pypi/v/data-warp.svg)](https://pypi.org/project/data-warp/) 
 
 `Data-Warp` is a powerful Python library that simplifies working with data files across various formats and storage locations. At its core is the FileConnector module, a universal connector designed to streamline data ingestion from multiple sources with minimal configuration.
 

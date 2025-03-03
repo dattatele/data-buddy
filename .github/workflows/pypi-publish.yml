@@ -39,8 +39,14 @@ jobs:
       - name: Install dependencies
         run: poetry install
 
-      - name: run tests
-        run: poetry run pytest
+      - name: Run tests with coverage
+        run: poetry run pytest --cov=data_warp --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: true
         
       - name: Build package
         run: poetry build
