@@ -1,0 +1,46 @@
+name: Publish Python distribution to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on tags like v0.1.1
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python -
+          export PATH="$HOME/.local/bin:$PATH"
+
+      - name: Configure Poetry
+        run: poetry config virtualenvs.create false
+
+      - name: Configure Poetry Token
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          if [ -z "$PYPI_TOKEN" ]; then
+            echo "PYPI_TOKEN is empty!"
+            exit 1
+          fi
+          poetry config pypi-token.pypi "$PYPI_TOKEN"
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Build package
+        run: poetry build
+
+      - name: Publish package to PyPI
+        run: poetry publish --no-interaction
