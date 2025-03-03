@@ -1,6 +1,6 @@
 [project]
 name = "data-warp"
-version = "0.1.1"
+version = "0.1.2"
 description = "DataWarp is a powerful Python library that simplifies working with data files across various formats and storage locations and orchestrate data workflow for multiple backends or services."
 
 authors = [{ name = "Datta Tele", email = "datta.tele@gmail.com" }]
