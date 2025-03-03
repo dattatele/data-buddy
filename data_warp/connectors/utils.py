@@ -58,8 +58,17 @@ class StreamingBatchIterator:
         return self.__next__()
 
     def to_list(self) -> List[List[Any]]:
-        """Return all remaining batches as a list."""
-        return list(self._gen)
+        """
+        Convert all remaining batches into a list.
+        This will exhaust the iterator and update the cache.
+        """
+        while not self._exhausted:
+            try:
+                next(self)
+            except StopIteration:
+                break
+        return self._cache
+        # return list(self._gen)
     
     def flatten_to_list(self) -> List[Any]:
         """
@@ -79,7 +88,12 @@ class StreamingBatchIterator:
         """
         Return a new StreamingBatchIterator with only batches that satisfy the predicate.
         """
-        return StreamingBatchIterator((batch for batch in self._gen if predicate(batch)))
+        # return StreamingBatchIterator((batch for batch in self._gen if predicate(batch)))
+        def filtered_gen():
+            for batch in self.to_list():
+                if predicate(batch):
+                    yield batch
+        return StreamingBatchIterator(filtered_gen())
 
     def search(self, search_func: Callable[[Any], bool]) -> Iterator[Any]:
         """
@@ -94,7 +108,11 @@ class StreamingBatchIterator:
         """
         Apply a function to each batch and return a new StreamingBatchIterator.
         """
-        return StreamingBatchIterator((func(batch) for batch in self._gen))
+        # return StreamingBatchIterator((func(batch) for batch in self._gen))
+        def mapped_gen():
+            for batch in self.to_list():
+                yield func(batch)
+        return StreamingBatchIterator(mapped_gen())
 
     def flatten(self) -> Iterator[Any]:
         """
@@ -107,15 +125,15 @@ class StreamingBatchIterator:
     def __len__(self) -> int:
         """
         Return the total number of batches.
-        If the underlying generator has a __length_hint__, use that;
-        otherwise, exhaust the iterator to compute length.
+        This forces full evaluation of the underlying generator.
         """
-        try:
-            remaining = self._gen.__length_hint__()
-        except AttributeError:
-            # If not available, exhaust the generator.
-            if not self._exhausted:
-                self._cache.extend(list(self._gen))
-                self._exhausted = True
-            remaining = 0
-        return len(self._cache) + remaining
+        return len(self.to_list())
+        # try:
+        #     remaining = self._gen.__length_hint__()
+        # except AttributeError:
+        #     # If not available, exhaust the generator.
+        #     if not self._exhausted:
+        #         self._cache.extend(list(self._gen))
+        #         self._exhausted = True
+        #     remaining = 0
+        # return len(self._cache) + remaining

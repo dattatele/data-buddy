@@ -12,7 +12,7 @@ def test_init_with_engine():
     assert connector.engine == dummy_engine
 
 
-@patch("data_buddy.connectors.database_connector.create_engine")
+@patch("data_warp.connectors.database_connector.create_engine")
 def test_init_with_connection_string(mock_create_engine):
     """Test that providing a connection string calls create_engine."""
     dummy_engine = MagicMock(spec=Engine)
@@ -31,7 +31,7 @@ def test_init_with_no_params():
         DatabaseConnector()
 
 
-@patch("data_buddy.connectors.database_connector.pd.read_sql")
+@patch("data_warp.connectors.database_connector.pd.read_sql")
 def test_fetch_success(mock_read_sql):
     """Test that fetch returns a DataFrame when no errors occur."""
     # Create a dummy connection and context manager for engine.connect()
@@ -57,7 +57,7 @@ def test_fetch_success(mock_read_sql):
     assert df_result.equals(df_expected)
 
 
-@patch("data_buddy.connectors.database_connector.pd.read_sql")
+@patch("data_warp.connectors.database_connector.pd.read_sql")
 def test_fetch_failure(mock_read_sql):
     """Test that fetch raises RuntimeError when an exception occurs."""
     dummy_connection = MagicMock(spec=Connection)

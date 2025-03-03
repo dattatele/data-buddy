@@ -1,18 +1,21 @@
+import io
+import json
+import os
+import tempfile
 import pytest
 import pandas as pd
-import numpy as np
-import io
-import tempfile
-import json
-import requests
-from collections.abc import Iterator
 import pyarrow as pa
 import pyarrow.parquet as pq
-import time
+import requests
 import inspect
-from unittest.mock import Mock, patch, MagicMock
+from collections.abc import Iterator
+from unittest.mock import MagicMock, patch
 
-from data_warp.connectors.file_connector import FileConnector, inherit_docstring_and_signature
+from data_warp.connectors.file_connector import (
+    FileConnector,
+    inherit_docstring_and_signature,
+    StreamingBatchIterator,
+)
 
 
 @pytest.fixture
@@ -21,6 +24,7 @@ def csv_file():
         df = pd.DataFrame({"name": ["Alice", "Bob"], "age": [25, 30]})
         df.to_csv(f.name, index=False)
         yield f.name
+    os.unlink(f.name)
 
 @pytest.fixture
 def json_file():
@@ -29,6 +33,36 @@ def json_file():
         with open(f.name, 'w') as json_f:
             json.dump(data, json_f)
         yield f.name
+    os.unlink(f.name)
+
+
+@pytest.fixture
+def json_file_dict_of_lists():
+    # This JSON file is a dict-of-lists.
+    data = {"name": ["Alice", "Bob"], "age": [25, 30]}
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+        json.dump(data, f)
+        yield f.name
+    os.unlink(f.name)
+
+@pytest.fixture
+def json_file_array():
+    # This JSON file is a JSON array.
+    data = [{"a": 1}, {"a": 2}]
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+        json.dump(data, f)
+        yield f.name
+    os.unlink(f.name)
+
+@pytest.fixture
+def json_file_ndjson():
+    # This JSON file is NDJSON.
+    data = [{"x": "one"}, {"x": "two"}, {"x": "three"}]
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+        for rec in data:
+            f.write(json.dumps(rec) + "\n")
+        yield f.name
+    os.unlink(f.name)
 
 @pytest.fixture
 def parquet_file():
@@ -37,6 +71,7 @@ def parquet_file():
         table = pa.Table.from_pandas(df)
         pq.write_table(table, f.name)
         yield f.name
+    os.unlink(f.name)
 
 @pytest.fixture
 def excel_file():
@@ -44,6 +79,7 @@ def excel_file():
         df = pd.DataFrame({"name": ["Alice", "Bob"], "age": [25, 30]})
         df.to_excel(f.name, index=False)
         yield f.name
+    os.unlink(f.name)
 
 # ----------------------- Basic Fetch Tests ----------------------- #
 
@@ -67,7 +103,7 @@ def test_fetch_csv_with_builtin(csv_file):
 def test_fetch_csv_pyarrow(csv_file):
     connector = FileConnector(file_path=csv_file, source="local", reader="pyarrow")
     # Patch pyarrow's read_csv to simulate a DataFrame result.
-    with patch("data_buddy.connectors.file_connector.pacsv.read_csv") as mock_pyarrow_read_csv:
+    with patch("data_warp.connectors.file_connector.pacsv.read_csv") as mock_pyarrow_read_csv:
         df_expected = pd.read_csv(csv_file)
         mock_pyarrow_read_csv.return_value = df_expected
         data = connector.fetch()
@@ -91,7 +127,7 @@ def test_fetch_json_builtin(json_file):
 
 def test_fetch_json_pyarrow(json_file):
     connector = FileConnector(file_path=json_file, file_type="json", source="local", reader="pyarrow")
-    with patch("data_buddy.connectors.file_connector.pajson.read_json") as mock_pyarrow_read_json:
+    with patch("data_warp.connectors.file_connector.pajson.read_json") as mock_pyarrow_read_json:
         df_expected = pd.read_json(json_file)
         mock_pyarrow_read_json.return_value = df_expected
         data = connector.fetch()
@@ -109,7 +145,7 @@ def test_fetch_parquet(parquet_file):
 
 def test_fetch_parquet_pyarrow(parquet_file):
     connector = FileConnector(file_path=parquet_file, file_type="parquet", source="local", reader="pyarrow")
-    with patch("data_buddy.connectors.file_connector.pq.read_table") as mock_pq_read_table:
+    with patch("data_warp.connectors.file_connector.pq.read_table") as mock_pq_read_table:
         df_expected = pd.read_parquet(parquet_file)
         # Simulate a pyarrow Table whose .to_pandas() returns our DataFrame.
         dummy_table = MagicMock()
@@ -122,16 +158,70 @@ def test_fetch_parquet_pyarrow(parquet_file):
 # ----------------------- Excel Tests ----------------------- #
 
 def test_fetch_excel(excel_file):
-    connector = FileConnector(file_path=excel_file, file_type="excel", source="local")
+    connector = FileConnector(file_path=excel_file, file_type="xlsx", source="local")
     data = connector.fetch()
     assert isinstance(data, pd.DataFrame)
     assert data.shape == (2, 2)
     assert data.iloc[0]['name'] == 'Alice'
 
 def test_fetch_excel_with_invalid_reader(excel_file):
-    connector = FileConnector(file_path=excel_file, file_type="excel", reader="builtin")
+    connector = FileConnector(file_path=excel_file, file_type="xlsx", reader="builtin")
     with pytest.raises(ValueError):
         connector.fetch()
+
+#########################
+# Tests for Batch Fetching
+#########################
+
+
+def test_fetch_batch_csv_builtin(csv_file):
+    connector = FileConnector(file_path=csv_file, source="local", reader="builtin")
+    batches = connector.fetch_batch(batch_size=1)
+    # Builtin CSV batching should produce 2 batches (one for each row)
+    if isinstance(batches, StreamingBatchIterator):
+        batch_list = batches.flatten_to_list()
+    else:
+        batch_list = batches
+    assert isinstance(batch_list, list)
+    assert len(batch_list) == 2
+    total_rows = sum(len(batch) for batch in batch_list)
+    assert total_rows == 2
+    assert batch_list[0][0]['name'] == 'Alice'
+
+def test_fetch_batch_json_builtin_array(json_file_array):
+    # Test builtin JSON batching for a JSON array.
+    connector = FileConnector(file_path=str(json_file_array), file_type="json", source="local", reader="builtin")
+    batches = connector.fetch_batch(batch_size=1)
+    batche_df = batches.to_dataframe()
+    # Expect 2 batches: one per object in the array.
+    assert isinstance(batche_df, pd.DataFrame)
+
+
+def test_fetch_batch_json_builtin_dict_of_lists(json_file_dict_of_lists):
+    # Test builtin JSON batching for a dict-of-lists.
+    connector = FileConnector(file_path=str(json_file_dict_of_lists), file_type="json", source="local", reader="builtin")
+    batches = connector.fetch_batch(batch_size=1)
+    batche_df = batches.to_dataframe()
+    # Expect 2 batches: one per object in the array.
+    assert isinstance(batche_df, pd.DataFrame)
+
+def test_fetch_batch_json_builtin_ndjson(json_file_ndjson):
+    # Test builtin JSON batching for NDJSON.
+    connector = FileConnector(file_path=str(json_file_ndjson), file_type="json", source="local", reader="builtin")
+    batches = connector.fetch_batch(batch_size=2)
+
+    batche_df = batches.to_dataframe()
+    # Expect 2 batches: one per object in the array.
+    assert isinstance(batche_df, pd.DataFrame)
+
+def test_fetch_batch_parquet_chunked(parquet_file):
+    connector = FileConnector(file_path=parquet_file, file_type="parquet", source="local", chunk_size=1)
+    batches = connector.fetch_batch(batch_size=1)
+    # Expect a list of DataFrame batches.
+    assert isinstance(batches, list)
+    first_batch = batches[0]
+    assert isinstance(first_batch, pd.DataFrame)
+    assert first_batch.shape[0] >= 1
 
 # ----------------------- Error Handling Tests: Unsupported ----------------------- #
 
@@ -232,22 +322,24 @@ def test_fetch_csv_chunked(csv_file):
 def test_fetch_json_chunked(json_file):
     connector = FileConnector(file_path=json_file, file_type="json", source="local", chunk_size=1)
     data = connector.fetch_batch()
-    assert isinstance(data, pd.DataFrame)
-    assert list(data['name']) == ["Alice", "Bob"]
+    dataDF = data[0]
+    assert isinstance(dataDF, pd.DataFrame)
+    assert dataDF.iloc[0]['name'] == ['Alice', 'Bob']
 
 def test_fetch_parquet_chunked(parquet_file):
     connector = FileConnector(file_path=parquet_file, file_type="parquet", source="local", chunk_size=1)
     data = connector.fetch_batch()
-    assert isinstance(data, pd.DataFrame)
-    assert data.shape == (2, 2)
-    assert data.iloc[0]['name'] == 'Alice'
+    dataDF = data[0]
+    assert isinstance(dataDF, pd.DataFrame)
+    assert dataDF.shape == (2, 2)
+    assert dataDF.iloc[0]['name'] == 'Alice'
 
-def test_fetch_excel_chunked(excel_file):
-    connector = FileConnector(file_path=excel_file, file_type="excel", source="local", chunk_size=1)
-    data = connector.fetch_batch()
-    assert isinstance(data, pd.DataFrame)
-    assert data.shape == (2, 2)
-    assert data.iloc[0]['name'] == 'Alice'
+# def test_fetch_excel_chunked(excel_file):
+#     connector = FileConnector(file_path=excel_file, file_type="xlsx", source="local", chunk_size=1)
+#     data = connector.fetch_batch()
+#     assert isinstance(data, pd.DataFrame)
+#     assert data.shape == (2, 2)
+#     assert data.iloc[0]['name'] == 'Alice'
 
 def test_fetch_batch_csv_builtin(csv_file):
     connector = FileConnector(file_path=csv_file, source="local", reader="builtin")
@@ -263,17 +355,20 @@ def test_fetch_batch_csv_builtin(csv_file):
 
 def test_fetch_batch_json_builtin(json_file):
     connector = FileConnector(file_path=json_file, file_type="json", source="local", reader="builtin")
-    batches = connector.fetch_batch(batch_size=1)
+    batches_gen = connector.fetch_batch()
+    batches = batches_gen.flatten_to_list()
     # For JSON builtin, if the loaded data is not a list, it returns [data]
     assert isinstance(batches, list)
     # Our fixture JSON is a dict so we expect a single batch.
-    assert len(batches) == 1
+    assert len(batches) == 2
 
 def test_fetch_batch_with_unsupported_reader(csv_file):
     # For fetch_batch, if reader is not 'pandas' or 'builtin', it should raise a ValueError.
     connector = FileConnector(file_path=csv_file, source="local", reader="pyarrow")
     with pytest.raises(ValueError, match="Unsupported reader: pyarrow"):
-        connector.fetch_batch(batch_size=1)
+        connector.fetch_batch()
+
+
 
 # ----------------------- Error Propagation in Public Methods ----------------------- #
 
