@@ -1,7 +1,7 @@
 [project]
-name = "data-buddy"
+name = "data_buddy"
 version = "0.1.1"
-description = "data-buddy is a powerful Python library that simplifies working with data files across various formats and storage locations and orchestrate data workflow for multiple backends or services."
+description = "data_buddy is a powerful Python library that simplifies working with data files across various formats and storage locations and orchestrate data workflow for multiple backends or services."
 
 authors = [{ name = "Datta Tele", email = "datta.tele@gmail.com" }]
 readme = "README.md"
