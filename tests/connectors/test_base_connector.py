@@ -1,5 +1,5 @@
 import pytest
-from data_buddy.connectors.base_connector import BaseConnector
+from data_warp.connectors.base_connector import BaseConnector
 
 def test_base_connector_is_abstract():
     """Test that BaseConnector cannot be instantiated directly."""

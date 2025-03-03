@@ -1,6 +1,6 @@
-# Data Buddy
+# DataWarp
 
-`data_buddy` is a powerful Python library that simplifies working with data files across various formats and storage locations. At its core is the FileConnector module, a universal connector designed to streamline data ingestion from multiple sources with minimal configuration.
+`DataWarp` is a powerful Python library that simplifies working with data files across various formats and storage locations. At its core is the FileConnector module, a universal connector designed to streamline data ingestion from multiple sources with minimal configuration.
  
 ## Key Features
 
@@ -74,6 +74,6 @@ FileConnector(huge_json_file.json, reader="builtin").fetch_batch().to_dataframe(
 ### Basic Installation
 
 ```bash
-pip install data_buddy
+pip install DataWarp
 ```
  

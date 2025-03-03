@@ -12,7 +12,7 @@ import time
 import inspect
 from unittest.mock import Mock, patch, MagicMock
 
-from data_buddy.connectors.file_connector import FileConnector, inherit_docstring_and_signature
+from data_warp.connectors.file_connector import FileConnector, inherit_docstring_and_signature
 
 
 @pytest.fixture

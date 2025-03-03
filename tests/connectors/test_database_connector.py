@@ -3,7 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine, Engine, Connection
 from unittest.mock import MagicMock, patch
 
-from data_buddy.connectors.database_connector import DatabaseConnector
+from data_warp.connectors.database_connector import DatabaseConnector
 
 def test_init_with_engine():
     """Test that providing an engine sets it on the connector."""

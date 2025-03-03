@@ -19,9 +19,9 @@ import pyarrow.parquet as pq
 import pyarrow.parquet as pq
 
 from retrying import retry  # External library for retry mechanism
-from data_buddy.connectors.base_connector import BaseConnector
-from data_buddy.connectors.sources import FileSource, LocalFileSource, HTTPFileSource, S3FileSource
-from data_buddy.connectors.utils import inherit_docstring_and_signature, StreamingBatchIterator
+from data_warp.connectors.base_connector import BaseConnector
+from data_warp.connectors.sources import FileSource, LocalFileSource, HTTPFileSource, S3FileSource
+from data_warp.connectors.utils import inherit_docstring_and_signature, StreamingBatchIterator
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

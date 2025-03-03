@@ -2,7 +2,7 @@ import pytest
 import io
 import requests
 from unittest.mock import Mock, patch, MagicMock
-from data_buddy.connectors.sources import (
+from data_warp.connectors.sources import (
     LocalFileSource,
     HTTPFileSource,
     S3FileSource,
