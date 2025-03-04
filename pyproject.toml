@@ -5,7 +5,7 @@ description = "DataWarp is a powerful Python library that simplifies working wit
 
 authors = [{ name = "Datta Tele", email = "datta.tele@gmail.com" }]
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<=3.13"
 keywords = ["data-engineering", "ETL", "pipelines", "connectors", "batch-processing", "stream-processing"]
 
 classifiers = [
