@@ -20,11 +20,15 @@ class DataGenerator:
         # Generate names using predefined first and last names
         first_names = np.array(['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Hank'])
         last_names = np.array(['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Miller', 'Davis', 'Garcia'])
-        names = np.core.defchararray.add(
-            np.random.choice(first_names, self.num_rows),
-            np.core.defchararray.add(" ", np.random.choice(last_names, self.num_rows))
-        )
+        # names = np.core.defchararray.add(
+        #     np.random.choice(first_names, self.num_rows),
+        #     np.core.defchararray.add(" ", np.random.choice(last_names, self.num_rows))
+        # )
 
+        names = np.char.add(
+            np.random.choice(first_names, self.num_rows),
+            np.char.add(" ", np.random.choice(last_names, self.num_rows))
+        )
         # Generate addresses (house number, street, city)
         streets = np.array(['Main St', 'Oak St', 'Pine St', 'Maple Ave', 'Cedar Ave', 'Elm St'])
         cities = np.array(['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix'])
